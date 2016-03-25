@@ -1,0 +1,83 @@
+项目添加二级缓存
+1、需要引入三个jar包
+		在hibernate下能找到
+		hibernate-distribution-3.5.6-Final\lib\optional\ehcache\ehcache-1.5.0.jar
+		在srping下能找到
+		..\lib\concurrent\backport-util-concurrent.jar
+		..\lib\jakarta-commons\commons-logging.jar
+2、在hibernate.cfg.xml中配置
+   （1）开启二级缓存：
+        <!-- 开启二级缓存 -->
+		<property name="hibernate.cache.use_second_level_cache">true</property>
+		<!-- 配置二级缓存的供应商 -->
+		<property name="hibernate.cache.provider_class">org.hibernate.cache.EhCacheProvider</property>
+		<!-- 启动二级缓存的查询缓存 -->
+		<property name="hibernate.cache.use_query_cache">true</property>
+   （2）添加类级别的二级缓存：
+        <!-- 配置类级别的二级缓存 -->
+		<class-cache class="cn.itcast.elec.domain.ElecSystemDDL" usage="read-write"/>
+3、测试二级缓存：
+   在junit包下进行测试，TestHibernateCache.java进行测试：
+    public class TestHibernateCache {
+		@Test
+		public void testCache(){
+			Configuration configuration = new Configuration();
+			configuration.configure();
+			SessionFactory sf = configuration.buildSessionFactory();
+			Session s = sf.openSession();
+			Transaction tr = s.beginTransaction();
+			
+			Query query = s.createQuery("from ElecSystemDDL");
+			//使用查询缓存
+			query.setCacheable(true);
+			query.list();//产生select语句
+			
+			tr.commit();
+			s.close();
+			////////////////////////////////////////////////////////////////////
+			s = sf.openSession();
+			tr = s.beginTransaction();
+			
+			Query query1 = s.createQuery("from ElecSystemDDL");
+			//使用查询缓存
+			query1.setCacheable(true);
+			query1.list();//?
+			
+			tr.commit();
+			s.close();
+			
+		}
+	}
+4、在项目中添加二级缓存：
+    在CommonDaoImpl中添加方法
+	   /**使用二级缓存，提高系统的检索性能*/
+		public List<T> findCollectionByConditionNoPageWithCache(String condition,
+				final Object[] params, LinkedHashMap<String, String> orderby) {
+			/**
+			 *  SELECT * FROM elec_text o WHERE 1=1   #DAO层封装
+				AND o.textName LIKE ? #Service层封装
+				AND o.textRemark LIKE ? #Service层封装
+				ORDER BY o.textDate ASC,o.textName DESC #Service层封装
+			 */
+			//定义Hql语句
+			String hql = "from " + entityClass.getSimpleName() + " o where 1=1";
+			String orderHql = this.orderByHql(orderby);
+			final String finalHql = hql + condition + orderHql;
+			//执行hql语句
+			//方法一：
+			//List<T> list = this.getHibernateTemplate().find(hql,params);
+			//方法二：
+			List<T> list = (List<T>) this.getHibernateTemplate().execute(new HibernateCallback(){
+				public Object doInHibernate(Session session)
+						throws HibernateException, SQLException {
+					Query query = session.createQuery(finalHql);
+					for(int i=0;params!=null && i<params.length;i++){
+						query.setParameter(i, params[i]);
+					}
+					//启用二级缓存存储数据
+					query.setCacheable(true);
+					return query.list();
+				}
+			});
+			return list;
+		}
